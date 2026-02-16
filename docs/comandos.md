@@ -9,7 +9,6 @@ Para compilar archivos de CUDA:
 | :--- | :--- |
 | Uso básico | `nvidia-smi` |
 | Actualización cada 1s | `nvidia-smi -l 1` |
-| Ver procesos de memoria | `nvidia-smi --query-compute-apps=process_name,used_memory --format=csv` |
 
 ## 🟥 Profiling (Análisis de rendimiento)
 `nsys profile ./programa`
