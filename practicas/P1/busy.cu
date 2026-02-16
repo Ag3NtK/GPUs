@@ -16,7 +16,7 @@ __global__ void busy_kernel(float *x, int N)
     }
 }
 int main() {
-    const int N = 1 << 25;
+    const int N = 1 << 20;
     float *d = nullptr;
 
     cudaMalloc((void**)&d, N * sizeof(float));
