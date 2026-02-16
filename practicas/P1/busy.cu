@@ -16,7 +16,7 @@ __global__ void busy_kernel(float *x, int N)
     }
 }
 int main() {
-    const int N = 1 << 26;
+    const int N = 1 << 25;
     float *d = nullptr;
 
     cudaMalloc((void**)&d, N * sizeof(float));
@@ -28,5 +28,7 @@ int main() {
     cudaDeviceSynchronize();
     cudaFree(d);
 
+    printf("Presiona Enter para salir...");
+    getchar();
     return 0;
 }
