@@ -28,7 +28,5 @@ int main() {
     cudaDeviceSynchronize();
     cudaFree(d);
 
-    printf("Presiona Enter para salir...");
-    getchar();
     return 0;
 }
