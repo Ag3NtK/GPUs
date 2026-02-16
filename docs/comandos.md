@@ -24,6 +24,7 @@ while($true) {
     Write-Host "--------------------------------------------";
     sleep -m 500;
 }
+```
 
 ## 🟥 Profiling (Análisis de rendimiento)
 `nsys profile ./programa`
