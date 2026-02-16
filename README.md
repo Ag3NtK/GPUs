@@ -6,7 +6,7 @@
 * `/practicas`: Código fuente de las prácticas
 * `/ejercicios`: Pequeños snippets de prueba y algoritmos básicos.
 * `/docs`: Documentación detallada y notas teóricas.
-* **[COMANDOS.md](./docs/COMANDOS.md)**: Mi "hoja de trucos" personalizada para compilar y monitorizar.
+* **[comandos.md](./docs/comandos.md)**: Mi "hoja de trucos" personalizada para compilar y monitorizar.
 
 ---
 
