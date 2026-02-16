@@ -1,0 +1,38 @@
+# --- Compilación de C++/CUDA ---
+*.exe
+*.obj
+*.o
+*.lib
+*.dll
+*.exp
+*.pdb
+
+# --- Archivos temporales de NVIDIA ---
+*.compute_70
+*.compute_80
+*.fatbin
+*.fatbin.c
+*.cudafe1.c
+*.cudafe1.cpp
+*.cudafe1.gpu
+*.cudafe1.stub.c
+
+# --- Nsight Systems & Profiling ---
+*.nsys-rep
+*.sqlite
+*.qdrep
+*.ncu-rep
+report*.txt
+resultado_perfil.txt
+
+# --- VS Code & Editores ---
+.vscode/
+.vs/
+*.swp
+*.patch
+
+# --- Otros ---
+node_modules/
+dist/
+build/
+bin/
