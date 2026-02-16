@@ -16,12 +16,16 @@ Para ver los relojes y la carga de forma limpia en Windows PowerShell:
 ```powershell
 while($true) { 
     cls; 
-    $gpu = (nvidia-smi --query-gpu=clocks.gr,clocks.mem,utilization.gpu,temp --format=csv,noheader,nounits).Split(',');
-    Write-Host "ESTADO DE LA GPU" -ForegroundColor Cyan;
-    Write-Host "--------------------------------------------";
-    Write-Host "| Core: $($gpu[0]) MHz | Mem: $($gpu[1]) MHz |";
-    Write-Host "| Carga: $($gpu[2]) %   | Temp: $($gpu[3]) ºC |";
-    Write-Host "--------------------------------------------";
+    $raw = nvidia-smi --query-gpu=clocks.current.graphics,clocks.current.memory,utilization.gpu,temperature.gpu --format=csv,noheader,nounits;
+    $gpu = $raw.Split(',');
+    
+    Write-Host "--- MONITORIZACIÓN GPU EN TIEMPO REAL ---" -ForegroundColor Cyan;
+    Write-Host "--------------------------------------------" -ForegroundColor Gray;
+    Write-Host "| Core:  $($gpu[0].Trim().PadLeft(4)) MHz  | Mem: $($gpu[1].Trim().PadLeft(5)) MHz |" -ForegroundColor White;
+    Write-Host "| Carga: $($gpu[2].Trim().PadLeft(4)) %    | Temp: $($gpu[3].Trim().PadLeft(5)) ºC  |" -ForegroundColor White;
+    Write-Host "--------------------------------------------" -ForegroundColor Gray;
+    Write-Host "[ Presiona Ctrl+C para detener ]" -ForegroundColor DarkGray;
+    
     sleep -m 500;
 }
 ```
