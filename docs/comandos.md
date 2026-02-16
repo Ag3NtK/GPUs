@@ -8,6 +8,7 @@ Para compilar archivos de CUDA:
 | Objetivo | Comando |
 | :--- | :--- |
 | Uso básico | `nvidia-smi` |
+| Uso detallado | `nvidia-smi -q` |
 | Actualización cada 1s | `nvidia-smi -l 1` |
 
 ## 🟥 Profiling (Análisis de rendimiento)
