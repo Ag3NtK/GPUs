@@ -26,7 +26,7 @@ while($true) {
     Write-Host "--------------------------------------------" -ForegroundColor Gray;
     Write-Host "[ Presiona Ctrl+C para detener ]" -ForegroundColor DarkGray;
     
-    sleep -m 500;
+    sleep -m 100;
 }
 ```
 
