@@ -6,6 +6,7 @@
 *.dll
 *.exp
 *.pdb
+*.x
 
 # --- Archivos temporales de NVIDIA ---
 *.compute_70
