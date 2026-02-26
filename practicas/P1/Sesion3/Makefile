@@ -17,4 +17,5 @@ matrix_mul: $(SRC)
 	$(NVCC) -o matrix_mult $(SRC) $(CFLAGS)
 
 clean:
-	rm -f *.o matrix_mult matrix_mult.exe matrix_mult.lib matrix_mult.exp
+	del -f *.o matrix_mult matrix_mult.exe matrix_mult.lib matrix_mult.exp
+	

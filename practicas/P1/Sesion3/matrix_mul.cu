@@ -50,16 +50,61 @@ extern "C" void Mul___(float* A, float* B, int hA, int wA, int wB, float* C)
 	cudaFree(Cd);
 }
 
+
 __global__ void Muld(float* A, float* B, int wA, int wB, float* C)
 {
-	//To Do
+	int tx = threadIdx.x;
+	int ty = threadIdx.y;
+	int col = blockIdx.x * BLOCK_SIZE + tx;
+	int row = blockIdx.y * BLOCK_SIZE + ty;
+	__shared__ float As[BLOCK_SIZE][BLOCK_SIZE];
+	__shared__ float Bs[BLOCK_SIZE][BLOCK_SIZE];
+	float acc = 0.0f;
+	int numTiles = (wA + BLOCK_SIZE- 1) / BLOCK_SIZE;
+	for (int t = 0; t < numTiles; t++) {
+		int Acol = t * BLOCK_SIZE + tx;
+		int Brow = t * BLOCK_SIZE + ty;
+		if (row < wA && Acol < wA)
+			As[ty][tx] = A[row*wA + Acol];
+		else
+			As[ty][tx] = 0.0f;
+		if (Brow < wA && col < wB)
+			Bs[ty][tx] = B[Brow*wB + col];
+		else
+			Bs[ty][tx] = 0.0f;
+		__syncthreads();
+		for (int k = 0; k < BLOCK_SIZE; k++)
+			acc += As[ty][k] * Bs[k][tx];
+		__syncthreads();
+	}
+	if (row < wA && col < wB)
+		C[row*wB + col] = acc;
 }
+
+
+
+
 
 #if 0
 // Device multiplication function called by Mul()
 // Compute C = A * B
 // wA is the width of A
 // wB is the width of B
+
+__global__ void Muld(float* A, float* B, int wA, int wB, float* C)	V0
+{
+	for (int row = 0; row < wA; row++) {
+		for (int col = 0; col < wB; col++) {
+			float acc = 0.0f;
+			for (int k = 0; k < wA; k++) {
+				acc += A[row * wA + k] * B[k * wB + col];
+			}
+			C[row * wB + col] = acc;
+		}
+	}
+}
+
+
 __global__ void Muld(float* A, float* B, int wA, int wB, float* C)
 {
 	// Block index

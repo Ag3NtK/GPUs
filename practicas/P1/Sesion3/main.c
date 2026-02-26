@@ -102,6 +102,8 @@ int main(int argc, char** argv)
 
 	if (!diff(A, B, hA, wA, wB, C))
 		printf("ERROR=GPU.vs.CPU matrix mult differs\n");
+	else
+		printf("OK\n");
 	
 
 	// print Matrix
