@@ -1,26 +1,20 @@
-CXX = g++
-CC = g++
 NVCC = nvcc
 
-CFLAGS=-O3 -I. -I/usr/local/cuda/include 
-CXXFLAGS=-O3 -I. -I/usr/local/cuda/include
+CFLAGS = -O3 -I.
 
-LIBS = -lm -lcuda -lcudart
-
-SRC =  main.o matrix_mul.o
+SRC = main.o matrix_mul.o
 	
+# Ahora NVCC compila los archivos .c
 %.o: %.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(NVCC) $(CFLAGS) -c -o $@ $<
 
+# NVCC compila los archivos .cu
 %.o: %.cu
 	$(NVCC) $(CFLAGS) -c -o $@ $<
 
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
-
+# NVCC une todo
 matrix_mul: $(SRC) 
-	$(CC) -o matrix_mult  $(SRC) $(CXXFLAGS) $(LIBS) 
+	$(NVCC) -o matrix_mult $(SRC) $(CFLAGS)
 
 clean:
-	rm -f *.o matrix_mult
-
+	rm -f *.o matrix_mult matrix_mult.exe matrix_mult.lib matrix_mult.exp

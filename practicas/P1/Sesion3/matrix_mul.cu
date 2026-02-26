@@ -14,7 +14,7 @@ __global__ void Muld(float*, float*, int, int, float*);
 // wB is the width of B
 
 
-void Mul___(float* A, float* B, int hA, int wA, int wB, float* C)
+extern "C" void Mul___(float* A, float* B, int hA, int wA, int wB, float* C)
 {
 	int size;
 
