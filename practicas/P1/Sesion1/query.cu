@@ -19,6 +19,11 @@ int main() {
         printf("    Concurrent Kernels: %d\n", p.concurrentKernels);
         printf("    L2 Cache: %d KB\n", p.l2CacheSize / 1024);
         printf("    Max Grid: [%d, %d, %d]\n", p.maxGridSize[0], p.maxGridSize[1], p.maxGridSize[2]);
+        printf("    Concurrent copy and execution: %s\n",  (p.asyncEngineCount ? "Yes" : "No"));
+        printf("    Concurrent kernels: %d\n",  p.concurrentKernels );
+
+        
+
     }
     return 0;
 }

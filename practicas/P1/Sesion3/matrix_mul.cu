@@ -4,8 +4,9 @@
 // Thread block size
 #define BLOCK_SIZE 16 
 
-// Forward declaration of the device multiplication function
-__global__ void Muld(float*, float*, int, int, float*);
+// Forward declaration of the device multiplication function (naive 2D grid kernel)
+// parameters: A, B, hA, wA, wB, C
+__global__ void Muld(float*, float*, int, int, int, float*);
 
 // Host multiplication function
 // Compute C = A * B
@@ -14,75 +15,109 @@ __global__ void Muld(float*, float*, int, int, float*);
 // wB is the width of B
 
 
-extern "C" void Mul___(float* A, float* B, int hA, int wA, int wB, float* C)
-{
-	int size;
 
-	// Load A and B to the device
-	float* Ad;
-	size = hA * wA * sizeof(float);
-	cudaMalloc((void**)&Ad, size);
-	cudaMemcpy(Ad, A, size, cudaMemcpyHostToDevice);
-	float* Bd;
-	size = wA * wB * sizeof(float);
-	cudaMalloc((void**)&Bd, size);
-	cudaMemcpy(Bd, B, size, cudaMemcpyHostToDevice);
 
-	// Allocate C on the device
-	float* Cd;
-	size = hA * wB * sizeof(float);
-	cudaMalloc((void**)&Cd, size);
-
-	// Compute the execution configuration assuming
-	// the matrix dimensions are multiples of BLOCK_SIZE
-	dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
-	dim3 dimGrid(wB / dimBlock.x, hA / dimBlock.y);
-
-	// Launch the device computation
-	Muld<<<dimGrid, dimBlock>>>(Ad, Bd, wA, wB, Cd);
-
-	// Read C from the device
-	cudaMemcpy(C, Cd, size, cudaMemcpyDeviceToHost);
-
-	// Free device memory
-	cudaFree(Ad);
-	cudaFree(Bd);
-	cudaFree(Cd);
+// naive kernel: each thread computes one element C[row,col]
+__global__ void Muld(float* A, float* B, int hA, int wA, int wB, float* C) {
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    if (row < hA && col < wB) {
+        float acc = 0.0f;
+        for (int k = 0; k < wA; ++k) {
+            acc += A[row * wA + k] * B[k * wB + col];
+        }
+        C[row * wB + col] = acc;
+    }
 }
 
+// test harness main
+int main(int argc, char** argv) {
+    int N = 1024;
+    if (argc > 1) N = atoi(argv[1]);
+    int hA = N, wA = N, wB = N;
+    size_t sizeA = hA * wA * sizeof(float);
+    size_t sizeB = wA * wB * sizeof(float);
+    size_t sizeC = hA * wB * sizeof(float);
 
-__global__ void Muld(float* A, float* B, int wA, int wB, float* C)
-{
-	int tx = threadIdx.x;
-	int ty = threadIdx.y;
-	int col = blockIdx.x * BLOCK_SIZE + tx;
-	int row = blockIdx.y * BLOCK_SIZE + ty;
-	__shared__ float As[BLOCK_SIZE][BLOCK_SIZE];
-	__shared__ float Bs[BLOCK_SIZE][BLOCK_SIZE];
-	float acc = 0.0f;
-	int numTiles = (wA + BLOCK_SIZE- 1) / BLOCK_SIZE;
-	for (int t = 0; t < numTiles; t++) {
-		int Acol = t * BLOCK_SIZE + tx;
-		int Brow = t * BLOCK_SIZE + ty;
-		if (row < wA && Acol < wA)
-			As[ty][tx] = A[row*wA + Acol];
-		else
-			As[ty][tx] = 0.0f;
-		if (Brow < wA && col < wB)
-			Bs[ty][tx] = B[Brow*wB + col];
-		else
-			Bs[ty][tx] = 0.0f;
-		__syncthreads();
-		for (int k = 0; k < BLOCK_SIZE; k++)
-			acc += As[ty][k] * Bs[k][tx];
-		__syncthreads();
+    float *hA_m = (float*)malloc(sizeA);
+    float *hB_m = (float*)malloc(sizeB);
+    float *hC_m = (float*)malloc(sizeC);
+    float *hC_ref = (float*)malloc(sizeC);
+    srand(0);
+    for (int i = 0; i < hA * wA; ++i) hA_m[i] = rand() / (float)RAND_MAX;
+    for (int i = 0; i < wA * wB; ++i) hB_m[i] = rand() / (float)RAND_MAX;
+    // CPU reference
+    for (int i = 0; i < hA; ++i)
+        for (int j = 0; j < wB; ++j) {
+            float acc = 0.0f;
+            for (int k = 0; k < wA; ++k)
+                acc += hA_m[i*wA + k] * hB_m[k*wB + j];
+            hC_ref[i*wB + j] = acc;
+        }
+
+    float *dA, *dB, *dC;
+    cudaMalloc(&dA, sizeA);
+    cudaMalloc(&dB, sizeB);
+    cudaMalloc(&dC, sizeC);
+    cudaMemcpy(dA, hA_m, sizeA, cudaMemcpyHostToDevice);
+    cudaMemcpy(dB, hB_m, sizeB, cudaMemcpyHostToDevice);
+
+    dim3 blocks[] = { dim3(8,8), dim3(16,16), dim3(32,8) };
+    printf("Matrix %dx%d x %dx%d\n", hA, wA, wA, wB);
+    printf("bx x by    time(ms)    GFLOP/s\n");
+    for (auto b : blocks) {
+        dim3 grid((wB + b.x - 1) / b.x, (hA + b.y - 1) / b.y);
+        // warmup
+        Muld<<<grid,b>>>(dA,dB,hA,wA,wB,dC);
+        cudaDeviceSynchronize();
+        cudaEvent_t st, en;
+        cudaEventCreate(&st);
+        cudaEventCreate(&en);
+        cudaEventRecord(st);
+        Muld<<<grid,b>>>(dA,dB,hA,wA,wB,dC);
+        cudaEventRecord(en);
+        cudaEventSynchronize(en);
+        float ms;
+        cudaEventElapsedTime(&ms, st, en);
+        cudaMemcpy(hC_m, dC, sizeC, cudaMemcpyDeviceToHost);
+        bool ok = true;
+        for (int i = 0; i < hA*wB; ++i) if (fabs(hC_m[i]-hC_ref[i]) > 1e-3f) { ok=false; break; }
+        if (!ok) printf("Mismatch for block %dx%d\n", b.x, b.y);
+        double ops = 2.0 * hA * wA * wB;
+        double gflops = ops / (ms*1e-3) / 1e9;
+        printf("%4d x %4d    %8.3f    %8.2f\n", b.x, b.y, ms, gflops);
+        cudaEventDestroy(st);
+        cudaEventDestroy(en);
+    }
+
+    cudaFree(dA);
+    cudaFree(dB);
+    cudaFree(dC);
+    free(hA_m);
+    free(hB_m);
+    free(hC_m);
+    free(hC_ref);
+    return 0;
+}
+
+#if 0  // tiled version not used in this exercise, kept for reference
+__global__ void Muld(float* A, float* B, int hA, int wA, int wB, float* C) {
+
+	// compute global row and column for this thread
+	int col = blockIdx.x * blockDim.x + threadIdx.x;
+	int row = blockIdx.y * blockDim.y + threadIdx.y;
+
+	// boundary check (A is hA x wA, B is wA x wB)
+	if (row < hA && col < wB) {
+		float acc = 0.0f;
+		for (int k = 0; k < wA; k++) {
+			acc += A[row * wA + k] * B[k * wB + col];
+		}
+		C[row * wB + col] = acc;
 	}
-	if (row < wA && col < wB)
-		C[row*wB + col] = acc;
 }
 
-
-
+#endif
 
 
 #if 0
