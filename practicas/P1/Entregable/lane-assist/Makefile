@@ -1,32 +1,36 @@
+# Rutas base
+VCPKG_DIR = C:\vcpkg\packages\libpng_x64-windows
+ZLIB_DIR = C:\vcpkg\packages\zlib_x64-windows
 
-CXX = g++
-CC = gcc
+CXX = cl
+CC = cl
 NVCC = nvcc
 
-#OpenCV
-CXX_OPENCV_FLAGS+=`pkg-config opencv --cflags`
-LD_OPENCV_FLAGS+=`pkg-config opencv --libs`
+# Banderas de compilacion (/MD es necesario para enlazar con vcpkg)
+CFLAGS = /nologo /O2 /MD /I. /I"$(VCPKG_DIR)\include" /I"$(ZLIB_DIR)\include"
+CXXFLAGS = /nologo /O2 /MD /I. /I"$(VCPKG_DIR)\include" /I"$(ZLIB_DIR)\include"
+NVCCFLAGS = -O3 -I. -I"$(VCPKG_DIR)\include" -I"$(ZLIB_DIR)\include" -Xcompiler "/MD"
 
+# Rutas a librerias
+CUDA_LIB_PATH = /LIBPATH:"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.1\lib\x64"
+VCPKG_LIB_PATH = /LIBPATH:"$(VCPKG_DIR)\lib" /LIBPATH:"$(ZLIB_DIR)\lib"
 
-CFLAGS=-O3 -I. 
-CXXFLAGS=-O3 -I.
+# Librerias necesarias
+LIBS = cudart.lib cuda.lib libpng16.lib zlib.lib
 
-LIBS =-lpng -lm -lcuda -lcudart
+OBJS = png_io.obj routinesCPU.obj routinesGPU.obj main.obj
 
-SRC = png_io.o routinesCPU.o routinesGPU.o main.o
-	
-%.o: %.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+%.obj: %.c
+	$(CC) $(CFLAGS) /c $< /Fo$@
 
-%.o: %.cu
-	$(NVCC) $(CFLAGS) -c -o $@ $<
+%.obj: %.cpp
+	$(CXX) $(CXXFLAGS) /c $< /Fo$@
 
+%.obj: %.cu
+	$(NVCC) $(NVCCFLAGS) -c $< -o $@
 
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
-
-image: $(SRC) 
-	$(CXX) -o image  $(SRC) $(CXXFLAGS) $(LIBS) 
+image.exe: $(OBJS)
+	$(CXX) /nologo $(OBJS) /Fe:image.exe /link $(CUDA_LIB_PATH) $(VCPKG_LIB_PATH) $(LIBS)
 
 clean:
-	rm -f *.o image
+	del *.obj image.exe *.exp *.lib *.o
