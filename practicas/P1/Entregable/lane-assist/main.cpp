@@ -1,9 +1,13 @@
+// Cambiado las librerías de /sys/ por chrono
+// Make file destrozado
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
-#include <chrono> // Reemplaza a las librerías POSIX de Linux
+
+#include <chrono>
 
 #include "routinesCPU.h"
 #include "routinesGPU.h"
