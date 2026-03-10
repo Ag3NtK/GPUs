@@ -68,7 +68,7 @@ int main(int argc, char **argv)
         }
         case 'g':
         {
-            auto start = std::chrono::high_resolution_clock::now();
+            auto start = std::chrono::high_resolution_clock::now();           
             
             lane_assist_GPU(im, height, width,
                 x1, y1, x2, y2, &nlines);

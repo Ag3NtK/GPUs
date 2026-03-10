@@ -1,486 +1,297 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-#include <cuda.h>
+#include <cuda_runtime.h>
 
 #include "routinesGPU.h"
 
 #define DEG2RAD 0.017453f
 
-void canny(uint8_t *im, uint8_t *image_out,
-	float *NR, float *G, float *phi, float *Gx, float *Gy, uint8_t *pedge,
-	float level,
-	int height, int width)
-{
-	int i, j;
-	int ii, jj;
-	float PI = 3.141593;
-
-	float lowthres, hithres;
-
-	for(i=2; i<height-2; i++)
-		for(j=2; j<width-2; j++)
-		{
-			// Noise reduction
-			NR[i*width+j] =
-				 (2.0*im[(i-2)*width+(j-2)] +  4.0*im[(i-2)*width+(j-1)] +  5.0*im[(i-2)*width+(j)] +  4.0*im[(i-2)*width+(j+1)] + 2.0*im[(i-2)*width+(j+2)]
-				+ 4.0*im[(i-1)*width+(j-2)] +  9.0*im[(i-1)*width+(j-1)] + 12.0*im[(i-1)*width+(j)] +  9.0*im[(i-1)*width+(j+1)] + 4.0*im[(i-1)*width+(j+2)]
-				+ 5.0*im[(i  )*width+(j-2)] + 12.0*im[(i  )*width+(j-1)] + 15.0*im[(i  )*width+(j)] + 12.0*im[(i  )*width+(j+1)] + 5.0*im[(i  )*width+(j+2)]
-				+ 4.0*im[(i+1)*width+(j-2)] +  9.0*im[(i+1)*width+(j-1)] + 12.0*im[(i+1)*width+(j)] +  9.0*im[(i+1)*width+(j+1)] + 4.0*im[(i+1)*width+(j+2)]
-				+ 2.0*im[(i+2)*width+(j-2)] +  4.0*im[(i+2)*width+(j-1)] +  5.0*im[(i+2)*width+(j)] +  4.0*im[(i+2)*width+(j+1)] + 2.0*im[(i+2)*width+(j+2)])
-				/159.0;
-		}
-
-
-	for(i=2; i<height-2; i++)
-		for(j=2; j<width-2; j++)
-		{
-			// Intensity gradient of the image
-			Gx[i*width+j] = 
-				 (1.0*NR[(i-2)*width+(j-2)] +  2.0*NR[(i-2)*width+(j-1)] +  (-2.0)*NR[(i-2)*width+(j+1)] + (-1.0)*NR[(i-2)*width+(j+2)]
-				+ 4.0*NR[(i-1)*width+(j-2)] +  8.0*NR[(i-1)*width+(j-1)] +  (-8.0)*NR[(i-1)*width+(j+1)] + (-4.0)*NR[(i-1)*width+(j+2)]
-				+ 6.0*NR[(i  )*width+(j-2)] + 12.0*NR[(i  )*width+(j-1)] + (-12.0)*NR[(i  )*width+(j+1)] + (-6.0)*NR[(i  )*width+(j+2)]
-				+ 4.0*NR[(i+1)*width+(j-2)] +  8.0*NR[(i+1)*width+(j-1)] +  (-8.0)*NR[(i+1)*width+(j+1)] + (-4.0)*NR[(i+1)*width+(j+2)]
-				+ 1.0*NR[(i+2)*width+(j-2)] +  2.0*NR[(i+2)*width+(j-1)] +  (-2.0)*NR[(i+2)*width+(j+1)] + (-1.0)*NR[(i+2)*width+(j+2)]);
-
-
-			Gy[i*width+j] = 
-				 ((-1.0)*NR[(i-2)*width+(j-2)] + (-4.0)*NR[(i-2)*width+(j-1)] +  (-6.0)*NR[(i-2)*width+(j)] + (-4.0)*NR[(i-2)*width+(j+1)] + (-1.0)*NR[(i-2)*width+(j+2)]
-				+ (-2.0)*NR[(i-1)*width+(j-2)] + (-8.0)*NR[(i-1)*width+(j-1)] + (-12.0)*NR[(i-1)*width+(j)] + (-8.0)*NR[(i-1)*width+(j+1)] + (-2.0)*NR[(i-1)*width+(j+2)]
-				+    2.0*NR[(i+1)*width+(j-2)] +    8.0*NR[(i+1)*width+(j-1)] +    12.0*NR[(i+1)*width+(j)] +    8.0*NR[(i+1)*width+(j+1)] +    2.0*NR[(i+1)*width+(j+2)]
-				+    1.0*NR[(i+2)*width+(j-2)] +    4.0*NR[(i+2)*width+(j-1)] +     6.0*NR[(i+2)*width+(j)] +    4.0*NR[(i+2)*width+(j+1)] +    1.0*NR[(i+2)*width+(j+2)]);
-
-			G[i*width+j]   = sqrtf((Gx[i*width+j]*Gx[i*width+j])+(Gy[i*width+j]*Gy[i*width+j]));	//G = √Gx²+Gy²
-			phi[i*width+j] = atan2f(fabs(Gy[i*width+j]),fabs(Gx[i*width+j]));
-
-			if(fabs(phi[i*width+j])<=PI/8 )
-				phi[i*width+j] = 0;
-			else if (fabs(phi[i*width+j])<= 3*(PI/8))
-				phi[i*width+j] = 45;
-			else if (fabs(phi[i*width+j]) <= 5*(PI/8))
-				phi[i*width+j] = 90;
-			else if (fabs(phi[i*width+j]) <= 7*(PI/8))
-				phi[i*width+j] = 135;
-			else phi[i*width+j] = 0;
-	}
-
-	// Edge
-	for(i=3; i<height-3; i++)
-		for(j=3; j<width-3; j++)
-		{
-			pedge[i*width+j] = 0;
-			if(phi[i*width+j] == 0){
-				if(G[i*width+j]>G[i*width+j+1] && G[i*width+j]>G[i*width+j-1]) //edge is in N-S
-					pedge[i*width+j] = 1;
-
-			} else if(phi[i*width+j] == 45) {
-				if(G[i*width+j]>G[(i+1)*width+j+1] && G[i*width+j]>G[(i-1)*width+j-1]) // edge is in NW-SE
-					pedge[i*width+j] = 1;
-
-			} else if(phi[i*width+j] == 90) {
-				if(G[i*width+j]>G[(i+1)*width+j] && G[i*width+j]>G[(i-1)*width+j]) //edge is in E-W
-					pedge[i*width+j] = 1;
-
-			} else if(phi[i*width+j] == 135) {
-				if(G[i*width+j]>G[(i+1)*width+j-1] && G[i*width+j]>G[(i-1)*width+j+1]) // edge is in NE-SW
-					pedge[i*width+j] = 1;
-			}
-		}
-
-	// Hysteresis Thresholding
-	lowthres = level/2;
-	hithres  = 2*(level);
-
-	for(i=3; i<height-3; i++)
-		for(j=3; j<width-3; j++)
-		{
-			image_out[i*width+j] = 0;
-			if(G[i*width+j]>hithres && pedge[i*width+j])
-				image_out[i*width+j] = 255;
-			else if(pedge[i*width+j] && G[i*width+j]>=lowthres && G[i*width+j]<hithres)
-				// check neighbours 3x3
-				for (ii=-1;ii<=1; ii++)
-					for (jj=-1;jj<=1; jj++)
-						if (G[(i+ii)*width+j+jj]>hithres)
-							image_out[i*width+j] = 255;
-		}
+__global__ void rgb2bw_kernel(uint8_t *im, uint8_t *imBW, int height, int width) {
+    int col = blockIdx.x;
+    if (col >= width) return;
+    for (int row = 0; row < height; row++) {
+        int idx = row * width + col;
+        float R = (float)im[3 * idx];
+        float G = (float)im[3 * idx + 1];
+        float B = (float)im[3 * idx + 2];
+        imBW[idx] = (uint8_t)(0.2989f * R + 0.5870f * G + 0.1140f * B);
+    }
 }
 
-
-// KERNEL 1: Noise reduction (5x5 Gaussian-like convolution)
-__global__ void kernel_noise_reduction(uint8_t *im, float *NR, int height, int width)
-{
-	int j = blockIdx.x * blockDim.x + threadIdx.x;
-	int i = blockIdx.y * blockDim.y + threadIdx.y;
-
-	if (i >= 2 && i < height - 2 && j >= 2 && j < width - 2)
-	{
-		NR[i * width + j] =
-			(2.0f * im[(i - 2) * width + (j - 2)] + 4.0f * im[(i - 2) * width + (j - 1)] + 5.0f * im[(i - 2) * width + (j)] + 4.0f * im[(i - 2) * width + (j + 1)] + 2.0f * im[(i - 2) * width + (j + 2)]
-				+ 4.0f * im[(i - 1) * width + (j - 2)] + 9.0f * im[(i - 1) * width + (j - 1)] + 12.0f * im[(i - 1) * width + (j)] + 9.0f * im[(i - 1) * width + (j + 1)] + 4.0f * im[(i - 1) * width + (j + 2)]
-				+ 5.0f * im[(i)*width + (j - 2)] + 12.0f * im[(i)*width + (j - 1)] + 15.0f * im[(i)*width + (j)] + 12.0f * im[(i)*width + (j + 1)] + 5.0f * im[(i)*width + (j + 2)]
-				+ 4.0f * im[(i + 1) * width + (j - 2)] + 9.0f * im[(i + 1) * width + (j - 1)] + 12.0f * im[(i + 1) * width + (j)] + 9.0f * im[(i + 1) * width + (j + 1)] + 4.0f * im[(i + 1) * width + (j + 2)]
-				+ 2.0f * im[(i + 2) * width + (j - 2)] + 4.0f * im[(i + 2) * width + (j - 1)] + 5.0f * im[(i + 2) * width + (j)] + 4.0f * im[(i + 2) * width + (j + 1)] + 2.0f * im[(i + 2) * width + (j + 2)])
-			/ 159.0f;
-	}
+__global__ void noise_reduction_kernel(uint8_t *imBW, float *NR, int height, int width) {
+    int col = blockIdx.x;
+    if (col < 2 || col >= width - 2) return;
+    for (int row = 2; row < height - 2; row++) {
+        int idx = row * width + col;
+        NR[idx] = (2.0f * imBW[(row-2)*width + (col-2)] + 4.0f * imBW[(row-2)*width + (col-1)] + 5.0f * imBW[(row-2)*width + col] + 4.0f * imBW[(row-2)*width + (col+1)] + 2.0f * imBW[(row-2)*width + (col+2)]
+                 + 4.0f * imBW[(row-1)*width + (col-2)] + 9.0f * imBW[(row-1)*width + (col-1)] + 12.0f * imBW[(row-1)*width + col] + 9.0f * imBW[(row-1)*width + (col+1)] + 4.0f * imBW[(row-1)*width + (col+2)]
+                 + 5.0f * imBW[row*width + (col-2)] + 12.0f * imBW[row*width + (col-1)] + 15.0f * imBW[row*width + col] + 12.0f * imBW[row*width + (col+1)] + 5.0f * imBW[row*width + (col+2)]
+                 + 4.0f * imBW[(row+1)*width + (col-2)] + 9.0f * imBW[(row+1)*width + (col-1)] + 12.0f * imBW[(row+1)*width + col] + 9.0f * imBW[(row+1)*width + (col+1)] + 4.0f * imBW[(row+1)*width + (col+2)]
+                 + 2.0f * imBW[(row+2)*width + (col-2)] + 4.0f * imBW[(row+2)*width + (col-1)] + 5.0f * imBW[(row+2)*width + col] + 4.0f * imBW[(row+2)*width + (col+1)] + 2.0f * imBW[(row+2)*width + (col+2)]) / 159.0f;
+    }
 }
 
-// KERNEL 2: Gradient calculation (Sobel operators)
-__global__ void kernel_gradient(float *NR, float *G, float *phi, int height, int width)
-{
-	int j = blockIdx.x * blockDim.x + threadIdx.x;
-	int i = blockIdx.y * blockDim.y + threadIdx.y;
+__global__ void gradient_kernel(float *NR, float *G, float *phi, float *Gx, float *Gy, int height, int width) {
+    int col = blockIdx.x;
+    if (col < 2 || col >= width - 2) return;
+    for (int row = 2; row < height - 2; row++) {
+        int idx = row * width + col;
+        Gx[idx] = (1.0f * NR[(row-2)*width + (col-2)] + 2.0f * NR[(row-2)*width + (col-1)] + (-2.0f) * NR[(row-2)*width + (col+1)] + (-1.0f) * NR[(row-2)*width + (col+2)]
+                 + 4.0f * NR[(row-1)*width + (col-2)] + 8.0f * NR[(row-1)*width + (col-1)] + (-8.0f) * NR[(row-1)*width + (col+1)] + (-4.0f) * NR[(row-1)*width + (col+2)]
+                 + 6.0f * NR[row*width + (col-2)] + 12.0f * NR[row*width + (col-1)] + (-12.0f) * NR[row*width + (col+1)] + (-6.0f) * NR[row*width + (col+2)]
+                 + 4.0f * NR[(row+1)*width + (col-2)] + 8.0f * NR[(row+1)*width + (col-1)] + (-8.0f) * NR[(row+1)*width + (col+1)] + (-4.0f) * NR[(row+1)*width + (col+2)]
+                 + 1.0f * NR[(row+2)*width + (col-2)] + 2.0f * NR[(row+2)*width + (col-1)] + (-2.0f) * NR[(row+2)*width + (col+1)] + (-1.0f) * NR[(row+2)*width + (col+2)]);
 
-	float PI = 3.141593f;
+        Gy[idx] = ((-1.0f) * NR[(row-2)*width + (col-2)] + (-4.0f) * NR[(row-2)*width + (col-1)] + (-6.0f) * NR[(row-2)*width + col] + (-4.0f) * NR[(row-2)*width + (col+1)] + (-1.0f) * NR[(row-2)*width + (col+2)]
+                 + (-2.0f) * NR[(row-1)*width + (col-2)] + (-8.0f) * NR[(row-1)*width + (col-1)] + (-12.0f) * NR[(row-1)*width + col] + (-8.0f) * NR[(row-1)*width + (col+1)] + (-2.0f) * NR[(row-1)*width + (col+2)]
+                 + 2.0f * NR[(row+1)*width + (col-2)] + 8.0f * NR[(row+1)*width + (col-1)] + 12.0f * NR[(row+1)*width + col] + 8.0f * NR[(row+1)*width + (col+1)] + 2.0f * NR[(row+1)*width + (col+2)]
+                 + 1.0f * NR[(row+2)*width + (col-2)] + 4.0f * NR[(row+2)*width + (col-1)] + 6.0f * NR[(row+2)*width + col] + 4.0f * NR[(row+2)*width + (col+1)] + 1.0f * NR[(row+2)*width + (col+2)]);
 
-	if (i >= 2 && i < height - 2 && j >= 2 && j < width - 2)
-	{
-		float Gx_value =
-			(1.0f * NR[(i - 2) * width + (j - 2)] + 2.0f * NR[(i - 2) * width + (j - 1)] + (-2.0f) * NR[(i - 2) * width + (j + 1)] + (-1.0f) * NR[(i - 2) * width + (j + 2)]
-				+ 4.0f * NR[(i - 1) * width + (j - 2)] + 8.0f * NR[(i - 1) * width + (j - 1)] + (-8.0f) * NR[(i - 1) * width + (j + 1)] + (-4.0f) * NR[(i - 1) * width + (j + 2)]
-				+ 6.0f * NR[(i)*width + (j - 2)] + 12.0f * NR[(i)*width + (j - 1)] + (-12.0f) * NR[(i)*width + (j + 1)] + (-6.0f) * NR[(i)*width + (j + 2)]
-				+ 4.0f * NR[(i + 1) * width + (j - 2)] + 8.0f * NR[(i + 1) * width + (j - 1)] + (-8.0f) * NR[(i + 1) * width + (j + 1)] + (-4.0f) * NR[(i + 1) * width + (j + 2)]
-				+ 1.0f * NR[(i + 2) * width + (j - 2)] + 2.0f * NR[(i + 2) * width + (j - 1)] + (-2.0f) * NR[(i + 2) * width + (j + 1)] + (-1.0f) * NR[(i + 2) * width + (j + 2)]);
+        G[idx] = sqrtf(Gx[idx] * Gx[idx] + Gy[idx] * Gy[idx]);
+        phi[idx] = atan2f(fabsf(Gy[idx]), fabsf(Gx[idx]));
 
-		float Gy_value =
-			((-1.0f) * NR[(i - 2) * width + (j - 2)] + (-4.0f) * NR[(i - 2) * width + (j - 1)] + (-6.0f) * NR[(i - 2) * width + (j)] + (-4.0f) * NR[(i - 2) * width + (j + 1)] + (-1.0f) * NR[(i - 2) * width + (j + 2)]
-				+ (-2.0f) * NR[(i - 1) * width + (j - 2)] + (-8.0f) * NR[(i - 1) * width + (j - 1)] + (-12.0f) * NR[(i - 1) * width + (j)] + (-8.0f) * NR[(i - 1) * width + (j + 1)] + (-2.0f) * NR[(i - 1) * width + (j + 2)]
-				+ 2.0f * NR[(i + 1) * width + (j - 2)] + 8.0f * NR[(i + 1) * width + (j - 1)] + 12.0f * NR[(i + 1) * width + (j)] + 8.0f * NR[(i + 1) * width + (j + 1)] + 2.0f * NR[(i + 1) * width + (j + 2)]
-				+ 1.0f * NR[(i + 2) * width + (j - 2)] + 4.0f * NR[(i + 2) * width + (j - 1)] + 6.0f * NR[(i + 2) * width + (j)] + 4.0f * NR[(i + 2) * width + (j + 1)] + 1.0f * NR[(i + 2) * width + (j + 2)]);
-
-		G[i * width + j] = sqrtf((Gx_value * Gx_value) + (Gy_value * Gy_value));
-		phi[i * width + j] = atan2f(fabs(Gy_value), fabs(Gx_value));
-
-		if (fabs(phi[i * width + j]) <= PI / 8)
-			phi[i * width + j] = 0;
-		else if (fabs(phi[i * width + j]) <= 3 * (PI / 8))
-			phi[i * width + j] = 45;
-		else if (fabs(phi[i * width + j]) <= 5 * (PI / 8))
-			phi[i * width + j] = 90;
-		else if (fabs(phi[i * width + j]) <= 7 * (PI / 8))
-			phi[i * width + j] = 135;
-		else
-			phi[i * width + j] = 0;
-	}
+        float PI = 3.141593f;
+        if (fabsf(phi[idx]) <= PI / 8)
+            phi[idx] = 0;
+        else if (fabsf(phi[idx]) <= 3 * (PI / 8))
+            phi[idx] = 45;
+        else if (fabsf(phi[idx]) <= 5 * (PI / 8))
+            phi[idx] = 90;
+        else if (fabsf(phi[idx]) <= 7 * (PI / 8))
+            phi[idx] = 135;
+        else
+            phi[idx] = 0;
+    }
 }
 
-// KERNEL 3: Edge detection (non-maximum suppression)
-__global__ void kernel_edge_detection(float *G, float *phi, uint8_t *pedge, int height, int width)
-{
-	int j = blockIdx.x * blockDim.x + threadIdx.x;
-	int i = blockIdx.y * blockDim.y + threadIdx.y;
-
-	if (i >= 3 && i < height - 3 && j >= 3 && j < width - 3)
-	{
-		pedge[i * width + j] = 0;
-		if (phi[i * width + j] == 0)
-		{
-			if (G[i * width + j] > G[i * width + j + 1] && G[i * width + j] > G[i * width + j - 1])
-				pedge[i * width + j] = 1;
-		}
-		else if (phi[i * width + j] == 45)
-		{
-			if (G[i * width + j] > G[(i + 1) * width + j + 1] && G[i * width + j] > G[(i - 1) * width + j - 1])
-				pedge[i * width + j] = 1;
-		}
-		else if (phi[i * width + j] == 90)
-		{
-			if (G[i * width + j] > G[(i + 1) * width + j] && G[i * width + j] > G[(i - 1) * width + j])
-				pedge[i * width + j] = 1;
-		}
-		else if (phi[i * width + j] == 135)
-		{
-			if (G[i * width + j] > G[(i + 1) * width + j - 1] && G[i * width + j] > G[(i - 1) * width + j + 1])
-				pedge[i * width + j] = 1;
-		}
-	}
+__global__ void edge_kernel(float *G, float *phi, uint8_t *pedge, int height, int width) {
+    int col = blockIdx.x;
+    if (col < 3 || col >= width - 3) return;
+    for (int row = 3; row < height - 3; row++) {
+        int idx = row * width + col;
+        pedge[idx] = 0;
+        if (phi[idx] == 0) {
+            if (G[idx] > G[idx + 1] && G[idx] > G[idx - 1])
+                pedge[idx] = 1;
+        } else if (phi[idx] == 45) {
+            if (G[idx] > G[(row+1)*width + col + 1] && G[idx] > G[(row-1)*width + col - 1])
+                pedge[idx] = 1;
+        } else if (phi[idx] == 90) {
+            if (G[idx] > G[(row+1)*width + col] && G[idx] > G[(row-1)*width + col])
+                pedge[idx] = 1;
+        } else if (phi[idx] == 135) {
+            if (G[idx] > G[(row+1)*width + col - 1] && G[idx] > G[(row-1)*width + col + 1])
+                pedge[idx] = 1;
+        }
+    }
 }
 
-// KERNEL 4: Hysteresis thresholding
-__global__ void kernel_hysteresis(float *G, uint8_t *pedge, uint8_t *image_out, float level, int height, int width)
-{
-	int j = blockIdx.x * blockDim.x + threadIdx.x;
-	int i = blockIdx.y * blockDim.y + threadIdx.y;
-
-	float lowthres = level / 2.0f;
-	float hithres = 2.0f * level;
-
-	if (i >= 3 && i < height - 3 && j >= 3 && j < width - 3)
-	{
-		image_out[i * width + j] = 0;
-		if (G[i * width + j] > hithres && pedge[i * width + j])
-			image_out[i * width + j] = 255;
-		else if (pedge[i * width + j] && G[i * width + j] >= lowthres && G[i * width + j] < hithres)
-		{
-			for (int ii = -1; ii <= 1; ii++)
-				for (int jj = -1; jj <= 1; jj++)
-					if (G[(i + ii) * width + j + jj] > hithres)
-						image_out[i * width + j] = 255;
-		}
-	}
+__global__ void hysteresis_kernel(float *G, uint8_t *pedge, uint8_t *imEdge, float level, int height, int width) {
+    int col = blockIdx.x;
+    if (col < 3 || col >= width - 3) return;
+    float lowthres = level / 2;
+    float hithres = 2 * level;
+    for (int row = 3; row < height - 3; row++) {
+        int idx = row * width + col;
+        imEdge[idx] = 0;
+        if (G[idx] > hithres && pedge[idx])
+            imEdge[idx] = 255;
+        else if (pedge[idx] && G[idx] >= lowthres && G[idx] < hithres) {
+            // check 3x3 neighbors
+            for (int ii = -1; ii <= 1; ii++)
+                for (int jj = -1; jj <= 1; jj++)
+                    if (G[(row + ii) * width + col + jj] > hithres)
+                        imEdge[idx] = 255;
+        }
+    }
 }
 
-// KERNEL 5: Hough transform (line detection voting)
-__global__ void kernel_hough_transform(uint8_t *image_out, uint32_t *accumulators, float *sin_table, float *cos_table,
-	int height, int width, int accu_height, int accu_width)
-{
-	int j = blockIdx.x * blockDim.x + threadIdx.x;
-	int i = blockIdx.y * blockDim.y + threadIdx.y;
-
-	if (i < height && j < width && image_out[i * width + j] > 250)
-	{
-		float hough_h = (sqrtf(2.0f) * (float)(height > width ? height : width)) / 2.0f;
-		float center_x = width / 2.0f;
-		float center_y = height / 2.0f;
-
-		for (int theta = 0; theta < 180; theta++)
-		{
-			float rho = (((float)j - center_x) * cos_table[theta]) + (((float)i - center_y) * sin_table[theta]);
-			int rho_int = (int)round(rho + hough_h);
-			int idx = (rho_int * 180) + theta;
-
-			if (idx >= 0 && idx < accu_width * accu_height)
-			{
-				atomicAdd(&accumulators[idx], 1);
-			}
-		}
-	}
-}
-
-
-void getlines(int threshold, uint32_t *accumulators, int accu_width, int accu_height, int width, int height, 
-	float *sin_table, float *cos_table,
-	int *x1_lines, int *y1_lines, int *x2_lines, int *y2_lines, int *lines)
-{
-	int rho, theta, ii, jj;
-	uint32_t max;
-
-	for(rho=0;rho<accu_height;rho++)
-	{
-		for(theta=0;theta<accu_width;theta++)  
-		{  
-
-			if(accumulators[(rho*accu_width) + theta] >= threshold)  
-			{  
-				//Is this point a local maxima (9x9)  
-				max = accumulators[(rho*accu_width) + theta]; 
-				for(int ii=-4;ii<=4;ii++)  
-				{  
-					for(int jj=-4;jj<=4;jj++)  
-					{  
-						if( (ii+rho>=0 && ii+rho<accu_height) && (jj+theta>=0 && jj+theta<accu_width) )  
-						{  
-							if( accumulators[((rho+ii)*accu_width) + (theta+jj)] > max )  
-							{
-								max = accumulators[((rho+ii)*accu_width) + (theta+jj)];
-							}  
-						}  
-					}  
-				}  
-
-				if(max == accumulators[(rho*accu_width) + theta]) //local maxima
-				{
-					int x1, y1, x2, y2;  
-					x1 = y1 = x2 = y2 = 0;  
-
-					if(theta >= 45 && theta <= 135)  
-					{
-						if (theta>90) {
-							//y = (r - x cos(t)) / sin(t)  
-							x1 = width/2;  
-							y1 = ((float)(rho-(accu_height/2)) - ((x1 - (width/2) ) * cos_table[theta])) / sin_table[theta] + (height / 2);
-							x2 = width;  
-							y2 = ((float)(rho-(accu_height/2)) - ((x2 - (width/2) ) * cos_table[theta])) / sin_table[theta] + (height / 2);  
-						} else {
-							//y = (r - x cos(t)) / sin(t)  
-							x1 = 0;  
-							y1 = ((float)(rho-(accu_height/2)) - ((x1 - (width/2) ) * cos_table[theta])) / sin_table[theta] + (height / 2);
-							x2 = width*2/5;  
-							y2 = ((float)(rho-(accu_height/2)) - ((x2 - (width/2) ) * cos_table[theta])) / sin_table[theta] + (height / 2); 
-						}
-					} else {
-						//x = (r - y sin(t)) / cos(t);  
-						y1 = 0;  
-						x1 = ((float)(rho-(accu_height/2)) - ((y1 - (height/2) ) * sin_table[theta])) / cos_table[theta] + (width / 2);  
-						y2 = height;  
-						x2 = ((float)(rho-(accu_height/2)) - ((y2 - (height/2) ) * sin_table[theta])) / cos_table[theta] + (width / 2);  
-					}
-					x1_lines[*lines] = x1;
-					y1_lines[*lines] = y1;
-					x2_lines[*lines] = x2;
-					y2_lines[*lines] = y2;
-					(*lines)++;
-				}
-			}
-		}
-	}
-}
-
-void init_cos_sin_table(float *sin_table, float *cos_table, int n)
-{
-	int i;
-	for (i=0; i<n; i++)
-	{
-		sin_table[i] = sinf(i*DEG2RAD);
-		cos_table[i] = cosf(i*DEG2RAD);
-	}
-}
-
-void houghtransform(uint8_t *im, int width, int height, uint32_t *accumulators, int accu_width, int accu_height, 
-	float *sin_table, float *cos_table)
-{
-	int i, j, theta;
-
-	float hough_h = ((sqrt(2.0) * (float)(height>width?height:width)) / 2.0);
-
-	for(i=0; i<accu_width*accu_height; i++)
-		accumulators[i]=0;	
-
-	float center_x = width/2.0; 
-	float center_y = height/2.0;
-	for(i=0;i<height;i++)  
-	{  
-		for(j=0;j<width;j++)  
-		{  
-			if( im[ (i*width) + j] > 250 ) // Pixel is edge  
-			{  
-				for(theta=0;theta<180;theta++)  
-				{  
-					float rho = ( ((float)j - center_x) * cos_table[theta]) + (((float)i - center_y) * sin_table[theta]);
-					accumulators[ (int)((round(rho + hough_h) * 180.0)) + theta]++;
-
-				} 
-			} 
-		} 
-	}
-}
-
-uint8_t *image_RGB2BW(uint8_t *image_in, int height, int width)
-{
-	int i, j;
-	uint8_t *imageBW = (uint8_t *)malloc(sizeof(uint8_t) * width * height);
-	float R, B, G;
-
-	for (i = 0; i < height; i++)
-		for (j = 0; j < width; j++)
-		{
-			R = (float)(image_in[3 * (i * width + j)]);
-			G = (float)(image_in[3 * (i * width + j) + 1]);
-			B = (float)(image_in[3 * (i * width + j) + 2]);
-
-			imageBW[i * width + j] = (uint8_t)(0.2989 * R + 0.5870 * G + 0.1140 * B);
-		}
-
-	return imageBW;
-}
-
-void draw_lines(uint8_t *imgtmp, int width, int height, int *x1, int *y1, int *x2, int *y2, int nlines)
-{
-	int x, y, wl, l;
-	int width_line=9;
-
-	for(l=0; l<nlines; l++)
-		for(wl=-(width_line>>1); wl<=(width_line>>1); wl++)
-			for (x=x1[l]; x<x2[l]; x++)
-			{
-				y = (float)(y2[l]-y1[l])/(x2[l]-x1[l])*(x-x1[l])+y1[l]; //Line eq. known two points
-				if (x+wl>0 && x+wl<width && y>0 && y<height)
-				{
-					imgtmp[3*((y)*width+x+wl)  ] = 255;
-					imgtmp[3*((y)*width+x+wl)+1] = 0;
-					imgtmp[3*((y)*width+x+wl)+2] = 0;
-				}
-			}
+__global__ void hough_kernel(uint8_t *imEdge, uint32_t *accum, int accu_width, int accu_height, float *sin_table, float *cos_table, int height, int width) {
+    int col = blockIdx.x;
+    if (col >= width) return;
+    float hough_h = ((sqrtf(2.0f) * (float)(height > width ? height : width)) / 2.0f);
+    float center_x = width / 2.0f;
+    float center_y = height / 2.0f;
+    for (int row = 0; row < height; row++) {
+        int idx = row * width + col;
+        if (imEdge[idx] > 250) {
+            for (int theta = 0; theta < 180; theta++) {
+                float rho = ((float)col - center_x) * cos_table[theta] + ((float)row - center_y) * sin_table[theta];
+                int rho_idx = (int)roundf(rho + hough_h);
+                int acc_idx = rho_idx * 180 + theta;
+                atomicAdd(&accum[acc_idx], 1);
+            }
+        }
+    }
 }
 
 void lane_assist_GPU(uint8_t *im, int height, int width,
 	int *x1, int *y1, int *x2, int *y2, int *nlines)
 {
-	// Allocate device memory for essential buffers only
-	uint8_t *d_im;
-	float *d_NR, *d_G, *d_phi;
-	uint8_t *d_pedge, *d_image_out;
-	float *d_sin_table, *d_cos_table;
-	uint32_t *d_accumulators;
+    // TIMING
+    cudaEvent_t start_h2d, stop_h2d, start_kernels, stop_kernels, start_d2h, stop_d2h;
+    cudaEventCreate(&start_h2d);
+    cudaEventCreate(&stop_h2d);
+    cudaEventCreate(&start_kernels);
+    cudaEventCreate(&stop_kernels);
+    cudaEventCreate(&start_d2h);
+    cudaEventCreate(&stop_d2h);
+    float time_h2d = 0.0f, time_kernels = 0.0f, time_d2h = 0.0f;
 
-	cudaMalloc(&d_im, height * width * sizeof(uint8_t));
-	cudaMalloc(&d_NR, height * width * sizeof(float));
-	cudaMalloc(&d_G, height * width * sizeof(float));
-	cudaMalloc(&d_phi, height * width * sizeof(float));
-	cudaMalloc(&d_pedge, height * width * sizeof(uint8_t));
-	cudaMalloc(&d_image_out, height * width * sizeof(uint8_t));
-	cudaMalloc(&d_sin_table, 180 * sizeof(float));
-	cudaMalloc(&d_cos_table, 180 * sizeof(float));
+    // Allocate device memory
+    uint8_t *d_imBW, *d_imEdge, *d_pedge;
+    float *d_NR, *d_G, *d_phi, *d_Gx, *d_Gy;
+    uint32_t *d_accum;
+    float *d_sin_table, *d_cos_table;
 
-	// Allocate and initialize accumulator
-	int accu_height = (int)(sqrtf(2.0f) * (float)(height > width ? height : width)) + 1;
-	int accu_width = 180;
-	cudaMalloc(&d_accumulators, accu_height * accu_width * sizeof(uint32_t));
-	cudaMemset(d_accumulators, 0, accu_height * accu_width * sizeof(uint32_t));
+    cudaMalloc(&d_imBW, height * width * sizeof(uint8_t));
+    cudaMalloc(&d_NR, height * width * sizeof(float));
+    cudaMalloc(&d_G, height * width * sizeof(float));
+    cudaMalloc(&d_phi, height * width * sizeof(float));
+    cudaMalloc(&d_Gx, height * width * sizeof(float));
+    cudaMalloc(&d_Gy, height * width * sizeof(float));
+    cudaMalloc(&d_pedge, height * width * sizeof(uint8_t));
+    cudaMalloc(&d_imEdge, height * width * sizeof(uint8_t));
 
-	// Copy input image to device
-	cudaMemcpy(d_im, im, height * width * sizeof(uint8_t), cudaMemcpyHostToDevice);
+    int accu_width = 180;
+    float hough_h = ((sqrtf(2.0f) * (float)(height > width ? height : width)) / 2.0f);
+    int accu_height = (int)(hough_h * 2.0f);
+    cudaMalloc(&d_accum, accu_width * accu_height * sizeof(uint32_t));
 
-	// Initialize sin/cos tables on host
-	float *h_sin_table = (float *)malloc(180 * sizeof(float));
-	float *h_cos_table = (float *)malloc(180 * sizeof(float));
-	for (int i = 0; i < 180; i++)
-	{
-		h_sin_table[i] = sinf(i * DEG2RAD);
-		h_cos_table[i] = cosf(i * DEG2RAD);
-	}
-	cudaMemcpy(d_sin_table, h_sin_table, 180 * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_cos_table, h_cos_table, 180 * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMalloc(&d_sin_table, 180 * sizeof(float));
+    cudaMalloc(&d_cos_table, 180 * sizeof(float));
 
-	// Configure block and grid dimensions
-	dim3 blockDim(16, 16);
-	dim3 gridDim((width + blockDim.x - 1) / blockDim.x, (height + blockDim.y - 1) / blockDim.y);
+    // Transfer H2D: input image and sin/cos tables
+    cudaEventRecord(start_h2d, 0);
+    
+    cudaMemcpy(d_imBW, im, height * width * sizeof(uint8_t), cudaMemcpyHostToDevice);
 
-	// Execute kernels sequentially
-	kernel_noise_reduction<<<gridDim, blockDim>>>(d_im, d_NR, height, width);
-	cudaDeviceSynchronize();
+    // Init sin cos tables
+    float h_sin[180], h_cos[180];
+    for (int i = 0; i < 180; i++) {
+        h_sin[i] = sinf(i * DEG2RAD);
+        h_cos[i] = cosf(i * DEG2RAD);
+    }
+    cudaMemcpy(d_sin_table, h_sin, 180 * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_cos_table, h_cos, 180 * sizeof(float), cudaMemcpyHostToDevice);
 
-	kernel_gradient<<<gridDim, blockDim>>>(d_NR, d_G, d_phi, height, width);
-	cudaDeviceSynchronize();
+    cudaEventRecord(stop_h2d, 0);
+    cudaEventSynchronize(stop_h2d);
+    cudaEventElapsedTime(&time_h2d, start_h2d, stop_h2d);
 
-	kernel_edge_detection<<<gridDim, blockDim>>>(d_G, d_phi, d_pedge, height, width);
-	cudaDeviceSynchronize();
+    // Kernels
+    dim3 grid(width);
+    dim3 block(1);
 
-	kernel_hysteresis<<<gridDim, blockDim>>>(d_G, d_pedge, d_image_out, 1000.0f, height, width);
-	cudaDeviceSynchronize();
+    cudaEventRecord(start_kernels, 0);
 
-	kernel_hough_transform<<<gridDim, blockDim>>>(d_image_out, d_accumulators, d_sin_table, d_cos_table,
-		height, width, accu_height, accu_width);
-	cudaDeviceSynchronize();
+    noise_reduction_kernel<<<grid, block>>>(d_imBW, d_NR, height, width);
+    cudaDeviceSynchronize();
 
-	// Copy results back to host
-	cudaMemcpy(im, d_image_out, height * width * sizeof(uint8_t), cudaMemcpyDeviceToHost);
+    gradient_kernel<<<grid, block>>>(d_NR, d_G, d_phi, d_Gx, d_Gy, height, width);
+    cudaDeviceSynchronize();
 
-	// Copy accumulator back to host and extract lines
-	uint32_t *h_accumulators = (uint32_t *)malloc(accu_height * accu_width * sizeof(uint32_t));
-	cudaMemcpy(h_accumulators, d_accumulators, accu_height * accu_width * sizeof(uint32_t), cudaMemcpyDeviceToHost);
+    edge_kernel<<<grid, block>>>(d_G, d_phi, d_pedge, height, width);
+    cudaDeviceSynchronize();
 
-	// Calculate threshold
-	int threshold = (width > height) ? width / 6 : height / 6;
+    hysteresis_kernel<<<grid, block>>>(d_G, d_pedge, d_imEdge, 1000.0f, height, width);
+    cudaDeviceSynchronize();
 
-	// Extract lines from accumulator
-	*nlines = 0;
-	getlines(threshold, h_accumulators, accu_width, accu_height, width, height,
-		h_sin_table, h_cos_table,
-		x1, y1, x2, y2, nlines);
+    cudaMemset(d_accum, 0, accu_width * accu_height * sizeof(uint32_t));
 
-	// Free device memory
-	cudaFree(d_im);
-	cudaFree(d_NR);
-	cudaFree(d_G);
-	cudaFree(d_phi);
-	cudaFree(d_pedge);
-	cudaFree(d_image_out);
-	cudaFree(d_sin_table);
-	cudaFree(d_cos_table);
-	cudaFree(d_accumulators);
+    hough_kernel<<<grid, block>>>(d_imEdge, d_accum, accu_width, accu_height, d_sin_table, d_cos_table, height, width);
+    cudaDeviceSynchronize();
 
-	free(h_sin_table);
-	free(h_cos_table);
-	free(h_accumulators);
+    cudaEventRecord(stop_kernels, 0);
+    cudaEventSynchronize(stop_kernels);
+    cudaEventElapsedTime(&time_kernels, start_kernels, stop_kernels);
+
+    // Transfer D2H: accumulator
+    cudaEventRecord(start_d2h, 0);
+
+    uint32_t *h_accum = (uint32_t *)malloc(accu_width * accu_height * sizeof(uint32_t));
+    cudaMemcpy(h_accum, d_accum, accu_width * accu_height * sizeof(uint32_t), cudaMemcpyDeviceToHost);
+
+    cudaEventRecord(stop_d2h, 0);
+    cudaEventSynchronize(stop_d2h);
+    cudaEventElapsedTime(&time_d2h, start_d2h, stop_d2h);
+
+    int threshold = (width > height) ? width / 6 : height / 6;
+    *nlines = 0;
+    // Implement getlines
+    for (int rho = 0; rho < accu_height; rho++) {
+        for (int theta = 0; theta < accu_width; theta++) {
+            if (h_accum[rho * accu_width + theta] >= threshold) {
+                uint32_t max = h_accum[rho * accu_width + theta];
+                for (int ii = -4; ii <= 4; ii++) {
+                    for (int jj = -4; jj <= 4; jj++) {
+                        if ((ii + rho >= 0 && ii + rho < accu_height) && (jj + theta >= 0 && jj + theta < accu_width)) {
+                            if (h_accum[(rho + ii) * accu_width + (theta + jj)] > max) {
+                                max = h_accum[(rho + ii) * accu_width + (theta + jj)];
+                            }
+                        }
+                    }
+                }
+                if (max == h_accum[rho * accu_width + theta]) {
+                    int x1l, y1l, x2l, y2l;
+                    if (theta >= 45 && theta <= 135) {
+                        if (theta > 90) {
+                            x1l = width / 2;
+                            y1l = ((float)(rho - (accu_height / 2)) - ((x1l - (width / 2)) * h_cos[theta])) / h_sin[theta] + (height / 2);
+                            x2l = width;
+                            y2l = ((float)(rho - (accu_height / 2)) - ((x2l - (width / 2)) * h_cos[theta])) / h_sin[theta] + (height / 2);
+                        } else {
+                            x1l = 0;
+                            y1l = ((float)(rho - (accu_height / 2)) - ((x1l - (width / 2)) * h_cos[theta])) / h_sin[theta] + (height / 2);
+                            x2l = width * 2 / 5;
+                            y2l = ((float)(rho - (accu_height / 2)) - ((x2l - (width / 2)) * h_cos[theta])) / h_sin[theta] + (height / 2);
+                        }
+                    } else {
+                        y1l = 0;
+                        x1l = ((float)(rho - (accu_height / 2)) - ((y1l - (height / 2)) * h_sin[theta])) / h_cos[theta] + (width / 2);
+                        y2l = height;
+                        x2l = ((float)(rho - (accu_height / 2)) - ((y2l - (height / 2)) * h_sin[theta])) / h_cos[theta] + (width / 2);
+                    }
+                    x1[*nlines] = x1l;
+                    y1[*nlines] = y1l;
+                    x2[*nlines] = x2l;
+                    y2[*nlines] = y2l;
+                    (*nlines)++;
+                }
+            }
+        }
+    }
+
+    free(h_accum);
+
+    // Print timing information
+    float total_time = time_h2d + time_kernels + time_d2h;
+    printf("=== GPU Timing Results ===\n");
+    printf("Transferencias H2D/D2H: %.3f ms\n", time_h2d);
+    printf("Kernels:                %.3f ms\n", time_kernels);
+    printf("Transferencias D2H:     %.3f ms\n", time_d2h);
+    printf("Total GPU:              %.3f ms\n", total_time);
+    printf("==========================\n");
+
+    // Free device memory
+    cudaFree(d_imBW);
+    cudaFree(d_NR);
+    cudaFree(d_G);
+    cudaFree(d_phi);
+    cudaFree(d_Gx);
+    cudaFree(d_Gy);
+    cudaFree(d_pedge);
+    cudaFree(d_imEdge);
+    cudaFree(d_accum);
+    cudaFree(d_sin_table);
+    cudaFree(d_cos_table);
+
+    // Destroy timing events
+    cudaEventDestroy(start_h2d);
+    cudaEventDestroy(stop_h2d);
+    cudaEventDestroy(start_kernels);
+    cudaEventDestroy(stop_kernels);
+    cudaEventDestroy(start_d2h);
+    cudaEventDestroy(stop_d2h);
 }
